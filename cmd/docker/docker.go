@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/versions"
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/term"
+	"github.com/ehazlett/liballoy"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -159,18 +160,61 @@ func main() {
 	dockerCli := command.NewDockerCli(stdin, stdout, stderr, contentTrustEnabled())
 	cmd := newDockerCommand(dockerCli)
 
-	if err := cmd.Execute(); err != nil {
-		if sterr, ok := err.(cli.StatusError); ok {
-			if sterr.Status != "" {
-				fmt.Fprintln(stderr, sterr.Status)
+	if os.Getenv("ALLOY_ENV") != "" {
+		if err := cmd.Execute(); err != nil {
+			if sterr, ok := err.(cli.StatusError); ok {
+				if sterr.Status != "" {
+					fmt.Fprintln(stderr, sterr.Status)
+				}
+				// StatusError should only be used for errors, and all errors should
+				// have a non-zero exit status, so never exit with 0
+				if sterr.StatusCode == 0 {
+					os.Exit(1)
+				}
+				os.Exit(sterr.StatusCode)
 			}
-			// StatusError should only be used for errors, and all errors should
-			// have a non-zero exit status, so never exit with 0
-			if sterr.StatusCode == 0 {
-				os.Exit(1)
-			}
-			os.Exit(sterr.StatusCode)
+			fmt.Fprintln(stderr, err)
+			os.Exit(1)
 		}
+		return
+	}
+
+	alloyCfg := &liballoy.Config{
+		Variants: []*liballoy.Variant{
+			&liballoy.Variant{
+				Version:    "18.03.0-ce",
+				Image:      "docker.io/ehazlett/docker-cli:18.03.0-ce",
+				Entrypoint: "/bin/docker",
+			},
+			&liballoy.Variant{
+				Version:    "18.03.1-ce",
+				Image:      "docker.io/ehazlett/docker-cli:18.03.1-ce",
+				Entrypoint: "/bin/docker",
+			},
+			&liballoy.Variant{
+				Version:    "18.04.0-ce",
+				Image:      "docker.io/ehazlett/docker-cli:18.04.0-ce",
+				Entrypoint: "/bin/docker",
+			},
+			&liballoy.Variant{
+				Version:    "latest",
+				Image:      "docker.io/ehazlett/docker-cli:latest",
+				Entrypoint: "/bin/docker",
+			},
+		},
+	}
+	alloy, err := liballoy.New(alloyCfg)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		os.Exit(1)
+	}
+
+	// TODO: get version of server as version
+	version := "latest"
+	if v := os.Getenv("ALLOY_VERSION"); v != "" {
+		version = v
+	}
+	if err := alloy.Run(version); err != nil {
 		fmt.Fprintln(stderr, err)
 		os.Exit(1)
 	}
